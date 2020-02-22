@@ -14,3 +14,14 @@ Git log:
 *Successfully created child process with fork, execvp
 *Placed integer in shared memory from parent process
 *Pulled integer from shared memory with child process
+*Created main loop which fork/execs appropriate amount (max) of children
+*Modified loop to 'wait' (not 'wait()') when 'number
+	 of allowed, simultaneous' children is exceeded
+*Passed child id (which number child, not PID) to child
+*Created shared memory array for flags to determine
+	what processes had finished
+*Created loop which checks for termination
+- child processes signal the flag at their position
+	in the shared memory array
+- parent process can then note that child's termination,
+	handle information apropriately, and lower flag

@@ -6,13 +6,17 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
+
+
 int main(int argc, char* argv[]){
+
+	
 
 int options;
 int nValue = 4;
 int sValue = 2;
 int bValue = 0;
-int iValue = 0;
+int iValue = 5;
 char outputFile[100];
 
 while((options = getopt(argc, argv, "hnsbio")) != -1){
@@ -50,25 +54,6 @@ switch(options){
 }
 
 
-/* test argv input with options */
-/*
-int count = argc;
-int i;
-
-printf("%d\n", nValue);
-printf("%d\n", sValue);
-printf("%d\n", bValue);
-printf("%d\n", iValue);
-printf("%s\n", outputFile);
-
-
-
-/* Test shared memory allocation/deallocation */
-
-// ftok to generate unique key
-//int uk = 1234;
-//key_t key = uk;
-
 // shmget returns an identifier in shmid
 int shmid = shmget(123, 1024, 0666|IPC_CREAT);
 
@@ -80,59 +65,108 @@ if (shmid < 0){
 
 // shmat to attach to shared memory
 char *paddr  = (char*) shmat(shmid, NULL, 0);
-
 int *pint = (int*)(paddr);
 *pint = 10;
-
-//int *pull = (int*) shmat(shmid, NULL, 0);
-
-//printf("%d\n", *pull);
-
-//printf("%s\n", str);
-
 // detach from shared memory
 shmdt(paddr);
-//shmdt(pull);
 
-//printf("%s\n", str);
+/*!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
 
-//remove shared memory segment
-//shmctl(shmid, IPC_RMID, NULL);
+// shmat to attach to shared memory
+int* array;
 
-
+// shmget returns an identifier in shmid
+int shmidAr = shmget(0101, 1024, 0666 | IPC_CREAT);
+// error check for shmget
+if (shmidAr < 0) {
+	printf("shmget error\n");
+	exit(1);
+}
+array = (int*)shmat(shmidAr, NULL, 0);
+int i;
+for (i = 0; i < 21; i++) {
+	array[i] = 0;
+}
+// detach from shared memory
+shmdt(array);
 
 
 int numberOfChildrenCreated = 0;
 int childrenWorking = 0;
 /* Test forking */
+int pid;
+while (numberOfChildrenCreated <= nValue) {
+	//check to see if a process has termiinated
+	
+	if (numberOfChildrenCreated >= sValue) {
+		int* arrayC;
+		//printf("%d\n", numberOfChildrenCreated);
+		int shmidArC = shmget(0101, 1024, 066);
+		if (shmidArC == -1) {
+			printf("error getting shmid\n");
+			exit(1);
+		}
+		arrayC = (int*)shmat(shmidArC, NULL, 0);
+		int i;
+		for (i = 0; i < 21; i++) {
+			if (arrayC[i] == 1) {
+				childrenWorking--;
+				arrayC[i] = 0;
+				
+			}
+
+		}
+		
+		
+	}
+	if (numberOfChildrenCreated >= nValue && childrenWorking == 0)
+		break;
+	if (numberOfChildrenCreated >= nValue)
+		continue;
+
+	if (childrenWorking < sValue) {
 
 
-int pid = fork();
+		pid = fork();
+		numberOfChildrenCreated++;
+		childrenWorking++;
 
-if (pid < 0){
-	printf("There was a forking error.\n");
-	exit(1);
+
+		if (pid < 0) {
+			printf("There was a forking error.\n");
+			exit(1);
+		}//end if
+		else if (pid == 0) {
+			char* args[] = { "./prime", NULL };
+			char* command = "./prime";
+			char* arguments[2];
+			char str[32];
+			char primeStartingNumber[32];
+			snprintf(str, sizeof(str), "%d", numberOfChildrenCreated);
+			int recalc = (numberOfChildrenCreated - 1);
+			snprintf(primeStartingNumber, sizeof(primeStartingNumber), "%d", (bValue + (iValue * recalc)));
+			arguments[0] = str;
+			arguments[1] = NULL;
+			//int value = execvp(command, arguments);
+			int value = execlp(command, str, primeStartingNumber, (char*)0);
+			if (value < 0) {
+				printf("Error with exec().\n");
+				exit(1);
+			}
+
+		}
+		else
+		{
+			//wait();
+			//childrenWorking--;
+			//printf("Some child died.\n");
+		}
+
+	}
 }
-else if (pid == 0){
-	char *args[] = {"./prime", NULL};
-	char *command = "./prime";
-	char *arguments[2];
-	char number_buff[32];
-	sprintf(number_buff, "%d", shmid);
-	arguments[0] = number_buff;
-	arguments[1] = NULL;
-	int value = execvp(command, arguments);
-	if (value < 0){
-		printf("Error with exec().\n");
-		exit(1);
-	} 
-}
-else {
-	wait();
-	printf("Child PID is %d.\n", pid);
-  }
-
+printf("Fork vim.\n");
 shmctl(shmid, IPC_RMID, NULL);
+shmctl(shmidAr, IPC_RMID, NULL);
 
 return 0;
 }
