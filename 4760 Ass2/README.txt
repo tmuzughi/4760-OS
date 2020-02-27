@@ -1,5 +1,11 @@
 # 4760-OS
 
+How to run:
+./oss
+
+To see a list of options:
+./oss -h
+
 Git log:
 2/19/20
 *Created .c files
@@ -25,3 +31,22 @@ Git log:
 	in the shared memory array
 - parent process can then note that child's termination,
 	handle information apropriately, and lower flag
+
+2/24/20
+*Added clock including naonseconds and real time seconds
+*Added termination for parent process exceeding real time of 2 seconds
+*Added ability to determine how many nanoseconds had passed in child process
+
+2/27/20
+*Added check for primality in child process
+*Added periodic check (in primality loop) for child process to terminate if 
+taking longer than 1 millisecond based on nanoseconds
+*Added shared memory array for child results
+*Added output file
+*Output results in all fashions to output file
+*Added perror checks where needed
+*Added check to keep concurrent process from exceeding 20
+*Added all additional termination criteria including Ctrl-C termination
+and subsequent output
+*Tested different process setups using options
+*Ensured shared memory deallocation in all cases

@@ -6,11 +6,19 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <time.h>
+#include <signal.h>
 
+void INThandler(int);
+
+int x;
 
 
 int main(int argc, char* argv[]){
 
+	signal(SIGINT, INThandler);
+	
+
+	
 	/*Start 'real time' clock*/
 	clock_t start, check;
 	start = clock();
@@ -20,7 +28,7 @@ int nValue = 4;
 int sValue = 2;
 int bValue = 0;
 int iValue = 5;
-char outputFile[100];
+char outputFile[100] = "output.log";
 
 while((options = getopt(argc, argv, "hnsbio")) != -1){
 
@@ -55,7 +63,20 @@ switch(options){
 		exit(0);
 	}
 }
-
+x = nValue;
+/*Create/clear/open output file*/
+FILE* file;
+char* mode = "w";
+file = fopen(outputFile, mode);
+if (file == NULL)
+perror("Could not open file.");
+fprintf(file, "%s", "");
+fclose(file);
+mode = "a";
+file = fopen(outputFile, mode);
+/*Keep s value at 20 or lower*/
+if (sValue > 20)
+	sValue = 20;
 /*---------------------------------------
 	Test integer in shared memory
 ----------------------------------------*/
@@ -64,16 +85,17 @@ int shmid = shmget(123, 1024, 0666|IPC_CREAT);
 
 // error check for shmget
 if (shmid < 0){
-	printf("shmget error\n");
+	perror("shmget error\n");
 	exit(1);
 }
 
 // shmat to attach to shared memory
 char *paddr  = (char*) shmat(shmid, NULL, 0);
 int *pint = (int*)(paddr);
-*pint = 10;
+*pint = nValue;
 // detach from shared memory
 shmdt(paddr);
+shmdt(pint);
 /*---------------------------------------*/
 
 /*---------------------------------------
@@ -85,7 +107,7 @@ int shmidCs = shmget(456, 1024, 0666 | IPC_CREAT);
 
 // error check for shmget
 if (shmidCs < 0) {
-	printf("shmget error\n");
+	perror("shmget error\n");
 	exit(1);
 }
 
@@ -106,7 +128,7 @@ int shmidCn = shmget(789, 1024, 0666 | IPC_CREAT);
 
 // error check for shmget
 if (shmidCn < 0) {
-	printf("shmget error\n");
+	perror("shmget error\n");
 	exit(1);
 }
 
@@ -118,6 +140,26 @@ long int* nanoSeconds = (long int*)(paddrCn);
 //shmdt(seconds);
 /*---------------------------------------*/
 
+/*--------------------------------------
+	Shared memory array for primality
+---------------------------------------*/
+// shmat to attach to shared memory
+int* array1;
+// shmget returns an identifier in shmid
+int shmidAr1 = shmget(0202, nValue * sizeof(int), 0666 | IPC_CREAT);
+// error check for shmget
+if (shmidAr1 < 0) {
+	perror("shmget error\n");
+	exit(1);
+}
+array1 = (int*)shmat(shmidAr1, NULL, 0);
+int i;
+for (i = 0; i < (nValue + 1); i++) {
+	array1[i] = 0;
+}
+// detach from shared memory
+shmdt(array1);
+/*-------------------------------------*/
 
 /*--------------------------------------
 	Shared memory flag array
@@ -128,12 +170,12 @@ int* array;
 int shmidAr = shmget(0101, 1024, 0666 | IPC_CREAT);
 // error check for shmget
 if (shmidAr < 0) {
-	printf("shmget error\n");
+	perror("shmget error\n");
 	exit(1);
 }
 array = (int*)shmat(shmidAr, NULL, 0);
-int i;
-for (i = 0; i < 21; i++) {
+
+for (i = 0; i < (nValue + 1); i++) {
 	array[i] = 0;
 }
 // detach from shared memory
@@ -182,15 +224,30 @@ while (numberOfChildrenCreated <= nValue) {
 		int* arrayC;
 		int shmidArC = shmget(0101, 1024, 066);
 		if (shmidArC == -1) {
-			printf("error getting shmid\n");
+			perror("error getting shmid\n");
 			exit(1);
 		}
 		arrayC = (int*)shmat(shmidArC, NULL, 0);
 		int i;
-		for (i = 0; i < 21; i++) {
+		for (i = 0; i < (nValue + 1); i++) {
 			if (arrayC[i] == 1) {
 				childrenWorking--;
-				arrayC[i] = 0;			
+				arrayC[i] = 0;
+
+				/*get starting time in nanoseconds*/
+				int shmidCn = shmget(789, 1024, 0666);
+				if (shmidCn == -1) {
+					perror("error getting shmid\n");
+					exit(1);
+				}
+				long int* now = (long int*)shmat(shmidCn, NULL, SHM_RDONLY);
+				/*the simulated start time in nanoseconds is
+				store in save*/
+				long int save = *now;
+				/*output to file time when x child was created*/
+				fprintf(file, "Child %d terminated at %d nanoseconds.\n", i, save);
+				shmdt(now);
+				break;
 			}
 		}				
 	}
@@ -205,11 +262,24 @@ while (numberOfChildrenCreated <= nValue) {
 	if (childrenWorking < sValue) {
 
 		pid = fork();
+		/*get starting time in nanoseconds*/
+		int shmidCn = shmget(789, 1024, 0666);
+		if (shmidCn == -1) {
+			perror("error getting shmid\n");
+			exit(1);
+		}
+		long int* now = (long int*)shmat(shmidCn, NULL, SHM_RDONLY);
+		/*the simulated start time in nanoseconds is
+		store in save*/
+		long int save = *now;
+		/*output to file time when x child was created*/
+		fprintf(file, "Child %d created at %d nanoseconds.\n", (numberOfChildrenCreated + 1), save);
+		shmdt(now);
 		numberOfChildrenCreated++;
 		childrenWorking++;
 
 		if (pid < 0) {
-			printf("There was a forking error.\n");
+			perror("There was a forking error.\n");
 			exit(1);
 		}//end if
 		else if (pid == 0) {
@@ -226,24 +296,97 @@ while (numberOfChildrenCreated <= nValue) {
 			//int value = execvp(command, arguments);
 			int value = execlp(command, str, primeStartingNumber, (char*)0);
 			if (value < 0) {
-				printf("Error with exec().\n");
+				perror("Error with exec().\n");
 				exit(1);
 			}
 		}		
 	}
 }
+int* arrayf;
+int shmidArf = shmget(0202, *pint * sizeof(int), 0666);
+if (shmidArf == -1) {
+	perror("error getting shmid2\n");
+	exit(1);
+}
+arrayf = (int*)shmat(shmidArf, NULL, 0);
+int j;
+fprintf(file, "Prime numbers: ");
+for (j = 1; j < (nValue + 1); j++) {
+	if (arrayf[j] > 0) {
+		fprintf(file, "%d ", arrayf[j]);
+	}
+}
+fprintf(file, "\n");
+fprintf(file, "Non prime numbers: ");
+for (j = 1; j < (nValue + 1); j++) {
+	if (arrayf[j] <= 0) {
+		fprintf(file, "%d ", arrayf[j]);
+	}
+}
+fprintf(file, "\n");
+fprintf(file, "Numbers unable to finish: ");
+for (j = 1; j < (nValue + 1); j++) {
+	if (arrayf[j] == -1) {
+		fprintf(file, "%d ", (bValue + (sValue * j)));
+	}
+}
+fprintf(file, "\n");
+/*get starting time in nanoseconds*/
+int shmidCf = shmget(789, 1024, 0666);
+if (shmidCf == -1) {
+	perror("error getting shmid\n");
+	exit(1);
+}
+long int* now1 = (long int*)shmat(shmidCf, NULL, SHM_RDONLY);
+/*the simulated start time in nanoseconds is
+store in save*/
+long int save1 = *now1;
+fprintf(file, "Parent process terminated at %d nanoseconds.", save1);
 /*Deallocate shared memory*/
-printf("Fork vim.\n");
+//printf("Fork vim.\n");
 shmctl(shmid, IPC_RMID, NULL);
 shmctl(shmidAr, IPC_RMID, NULL);
 
-/*test clock*/
-printf("%d\n", *seconds);
-printf("%d\n", *nanoSeconds);
 shmdt(seconds);
 shmdt(nanoSeconds);
 shmctl(shmidCs, IPC_RMID, NULL);
 shmctl(shmidCn, IPC_RMID, NULL);
-
+shmctl(shmidAr1, IPC_RMID, NULL);
+shmctl(shmidCf, IPC_RMID, NULL);
+fclose(file);
 return 0;
+}
+
+void  INThandler(int sig)
+{
+	FILE* file;
+	signal(sig, SIG_IGN);
+	char *mode = "a";
+	file = fopen("output.log", mode);
+	/*get starting time in nanoseconds*/
+	int shmidCf = shmget(789, 1024, 0666);
+	if (shmidCf == -1) {
+		printf("error getting shmid\n");
+		exit(1);
+	}
+	long int* now1 = (long int*)shmat(shmidCf, NULL, SHM_RDONLY);
+	/*the simulated start time in nanoseconds is
+	store in save*/
+	long int save1 = *now1;
+	fprintf(file, "Parent process terminated at %d nanoseconds.", save1);
+	fclose(file);
+	int shmid = shmget(123, 1024, 0666);
+	int shmidAr = shmget(0101, 1024, 0666);
+	int shmidCn = shmget(789, 1024, 0666);
+	int shmidCs = shmget(456, 1024, 0666);
+	int shmidAr1 = shmget(0202, x * sizeof(int), 0666);
+	/*Deallocate shared memory*/
+	shmctl(shmid, IPC_RMID, NULL);
+	shmctl(shmidAr, IPC_RMID, NULL);
+	shmctl(shmidCs, IPC_RMID, NULL);
+	shmctl(shmidCn, IPC_RMID, NULL);
+	shmctl(shmidAr1, IPC_RMID, NULL);
+	shmctl(shmidCf, IPC_RMID, NULL);
+	exit(0);
+	
 }
