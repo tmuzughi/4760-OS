@@ -8,6 +8,7 @@
 #include <time.h>
 #include <signal.h>
 #include <stdbool.h>
+#include <semaphore.h>
 
 #define FILENAME "inputFile.txt"
 
@@ -16,8 +17,15 @@ int getTotal();
 void timeToDie(clock_t, clock_t);
 int createSharedArray(int);
 void fetchSharedArray(int);
+void INThandler(int);
+void startTheForking(int);
+int createControlArray(int);
 
-int main(int argc, char* argv){
+int main(int argc, const char* argv[]){
+	/* ------------------------------------------------
+	   Set signal handler (just for ctrl + c for now)
+	-------------------------------------------------*/
+	signal(SIGINT, INThandler);
 	/* *** TODO: MOVE CLOCK START TO BEGINNING OF COMPUTATIONS ***/
 	/*Start 'real time' clock*/
 	clock_t start, check;
@@ -29,11 +37,18 @@ int main(int argc, char* argv){
 	/* Create shared memory array and feed integers from file */
 	int sharedMemoryId = createSharedArray(total);
 
+	/* Create control shared memory array and assign values */
+	int controlMemoryId = createControlArray(total);
+
+	/* Test forking */
+	startTheForking(total);
+
 	/* Test fetching integers from shared memory */
 	fetchSharedArray(total);
 
 	/* Remove shared memory*/
-	shmctl(sharedMemoryId, IPC_RMID, NULL);	
+	shmctl(sharedMemoryId, IPC_RMID, NULL);
+	shmctl(controlMemoryId, IPC_RMID, NULL);
 
 return 0;
 }
@@ -100,6 +115,38 @@ int createSharedArray(int total) {
 	return shmidAr1;
 }
 
+int createControlArray(int total) {
+	int gap = 1;
+	int numberToFork = (total / 2);
+	int remaining = numberToFork;
+	int fields = 4;
+
+	/*---------------------------------------
+	Set up shared memory array of size 'total'
+	----------------------------------------*/
+	int* array2;
+	/* We gon shmget us some memory! Yeehaw! */
+	int shmidAr2 = shmget(0202, fields * sizeof(int), 0666 | IPC_CREAT);
+	/* Check for errors */
+	if (shmidAr2 < 0) {
+		perror("shmget error\n");
+		exit(1);
+	}
+	/* Attach our array to the shared memory */
+	array2 = (int*)shmat(shmidAr2, NULL, 0);
+	
+	/* Set control array variables */
+	array2[0] = gap;
+	array2[1] = numberToFork;
+	array2[2] = total;
+	array2[3] = remaining;
+
+	/* Detach our array from shared memory */
+	shmdt(array2);
+	/*-------------------------------------*/
+
+	return shmidAr2;
+}
 void fetchSharedArray(int total) {
 	/* ------------------------------------------
 		Pull integers out of shared memory 
@@ -121,4 +168,46 @@ void fetchSharedArray(int total) {
 	}
 	/* Detach array from shared memory */
 	shmdt(array);
+}
+
+void  INThandler(int sig)
+{
+	
+	signal(sig, SIG_IGN);
+	printf("\nCtrl + C detected. Master process shutting down. Beep. Boop.\n");
+	exit(0);
+
+}
+
+void startTheForking(int total) {
+	/* Test forking apporpriate amount of children */
+	int pid;
+	int childIndex = -2;
+	int numberOfStartingProcesses = (total / 2);
+	int i;
+	for (i = 0; i < numberOfStartingProcesses; i++) {
+		childIndex += 2;
+		pid = fork();
+		if (pid < 0) {
+			perror("There was a forking error.\n");
+			exit(1);
+		}
+		else if (pid == 0) {
+			char* command = "./bin_adder";
+			char passChildIndex[32];
+			char size[32];
+			snprintf(passChildIndex, sizeof(passChildIndex), "%d", childIndex);
+			snprintf(size, sizeof(size), "%d", 2);
+			int value = execlp(command, passChildIndex, size, (char*)NULL);
+			if (value < 0) {
+				perror("Error with exec().\n");
+				exit(1);
+			}
+		}
+	}
+	int letsWait = 4;
+	for (i = 0; i < letsWait; i++) {
+		wait();
+	}
+	printf("All my friends are dead.\n");
 }
