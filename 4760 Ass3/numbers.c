@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define MIN_NUM 64
+#define MIN_NUM 128
 #define MAX_NUM 100
 #define MAX_BHATIA 256
 
