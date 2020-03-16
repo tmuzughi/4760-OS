@@ -21,11 +21,10 @@
 
 /* Function prototypes */
 int getTotal();
-void timeToDie(clock_t, clock_t);
 int createSharedArray(int);
 void fetchSharedArray(int);
 void INThandler(int);
-void startTheForking(int, clock_t, clock_t);
+void startTheForking(int);
 int createControlArray(int, int, int);
 int editControlArray(int, int);
 void refactor();
@@ -54,6 +53,9 @@ int main(int argc, const char* argv[]){
 			printf("Run command './master' after compiling.\n");
 			printf("OPTIONS:\n");
 			printf("-h Describe how to run, options, then terminate.\n");
+			printf("Open the README for instructions on creating an input\n");
+			printf("file using the provided program, 'numbers'. If you're\n");
+			printf("providing your own file it must be named 'inputFile.txt'\n");
 			printf("-r Remove wait time surrounding critical section access.\n");
 			printf("-a # Adjust the time (in seconds) allowed for computation. Default is 100.\n");
 			exit(0);
@@ -109,15 +111,8 @@ int main(int argc, const char* argv[]){
 	int mode = 0;
 	int controlMemoryId = createControlArray(total, mode, sleepTime);
 
-	/*Start 'real time' clock*/
-	clock_t start, check;
-	start = clock();
-
 	/* Priliminary forking */
-	startTheForking(total, start, check);
-
-	/* Test fetching integers from shared memory */
-	fetchSharedArray(total);
+	startTheForking(total);
 
 	/* Create shared memory array and feed integers from file */
 	sharedMemoryId = createSharedArray(total);
@@ -137,10 +132,7 @@ int main(int argc, const char* argv[]){
 	controlMemoryId = createControlArray(total, mode, sleepTime);
 
 	/* Post log forking */
-	startTheForking(total, start, check);
-
-	/* Test fetching integers from shared memory */
-	fetchSharedArray(total);
+	startTheForking(total);
 
 	/* Remove shared memory*/
 	shmdt(currentProcesses);
@@ -169,25 +161,6 @@ int getTotal() {
 	fclose(file);
 
 	return total;
-}
-
-void timeToDie(clock_t start, clock_t check) {
-	/* *** TODO: CALL THIS FUNCTION AT APPROPRIATE SPOT IN LOOP *** */
-	/*------------------------------------
-				Real Clock
-	-------------------------------------*/
-	/* I WILL MESS WITH TIME!!! */
-	double totalTime;
-	check = clock();
-	totalTime = ((double)(check - start) / CLOCKS_PER_SEC);
-	if (totalTime > 2)
-	{
-		/* Set marker for child processes to terminate */
-		currentProcesses = 1;
-		printf("Process master terminated: elapsed time greater than 100 seconds. Boop. Beep.\n");
-		exit(1);
-	}
-	
 }
 
 int createSharedArray(int total) {
@@ -336,7 +309,7 @@ void  INThandler(int sig)
 
 }
 
-void startTheForking(int total, clock_t start, clock_t check) {
+void startTheForking(int total) {
 	int numberOfProcesses = 0;
 	int childrenWorking = 0;
 	int letsWait = (total / 2);

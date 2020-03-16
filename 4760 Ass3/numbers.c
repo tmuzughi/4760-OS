@@ -2,20 +2,21 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define MIN_NUM 32
-#define MAX_NUM 100
 #define MAX_BHATIA 256
 
 int main(int argc, char* argv[]) {
 	/*Program creates input file for another program
 
 	input file should have...
-	*** at least 64 integers total
+	*** at least 64 integers total (or not, I'm a comment not a cop)
 	*** total number of integers should be power of 2
 	*** integers should be in range [0-256]
 	*/
 
-	/* FOR NOW ONLY 64 TOTAL IS OPTION WILL ENHANCE LATER */
+	int numberOfIntegers = 64;
+	if (argc > 1) {
+		numberOfIntegers = atoi(argv[1]);
+	}
 
 	/* Initialization, should only be called once */
 	srand(time(NULL));	 
@@ -31,7 +32,7 @@ int main(int argc, char* argv[]) {
 
 	/* Fill inputFile */
 	int i;
-	for (i = 0; i < MIN_NUM; i++) {
+	for (i = 0; i < numberOfIntegers; i++) {
 		/* Get a random number within the range */
 		int r = -1;
 		while (r < 0 || r > MAX_BHATIA) {
