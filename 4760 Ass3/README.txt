@@ -27,6 +27,31 @@ number of integers provided will be 64. Be sure that the number provided is a po
 of 2, 'numbers' will not check that this is so and 'master' may give unexpected results in
 the event of an input file with total numbers not equal to a power of 2.
 
+***Comparison of Methods***
+There are two ways you could approach the problem as I see it. 
+
+Approach 1:
+
+You avoid unexpected results in the first method by assuming results given to that method 
+will always be a power of 2 and therefore even. This means that if your log summation gives 
+you back an odd number of results or generally a number that isn't a power of 2 you may have an issue 
+with your forking. This was the method I chose and my solution was to ensure that when I recalled method 
+1 after doing the log summation from method 2 I kept the same number of integers I had originally. 
+I achieved this by zero'ing out all the numbers in the shared memory array other than the results 
+from method 2. In this case, overall, method 2 takes longer because you are doing the same amount 
+of summations as the first method but also the few log summations as well.
+
+Approach 2: 
+
+You alter method 1 by taking the ceiling of n/2 to account for odd numbers. For this I assume you need 
+to create a new shared memory array of size 'results', that is the number of integers returned from method 2,
+OR perhaps simply ensure you only fork off the ceiling of n/2 processes when recalling method 1. In this 
+case, method 2 should take less time than method one, because as Rakeem pointed out, even with the few log 
+summations your method 2 will be summing fewer integers.
+
+tldr: With the approach I took, method 2 takes longer because it does the same number of summations as method
+1 but also a few more summations to get the log results.
+
 ***Git log***
 
 3/10/20
