@@ -17,11 +17,11 @@
 
 /* Function prototypes */
 int binSum();
-void binLog();
+int binLog(int*, int, int, int);
 int* fetchSharedArray(int);
 int* fetchControlArray();
 void startTheForking(int, int, int, int);
-void update_file(int, int, int);
+void update_file(int, int, int, int, int);
 void oneRingToRuleThemAll();
 
 /* Global variables */
@@ -30,36 +30,47 @@ int* timeoutCheck;
 int main(int argc, const char* argv[]){
 	/*following should terminate self if parent terminates*/
 	prctl(PR_SET_PDEATHSIG, SIGHUP);
-
-	/* Link to currentProcesses */
-	//oneRingToRuleThemAll();
-
+	
 	/* Assign child its index */
 	int child = atoi(argv[0]);
+	int number = atoi(argv[1]);
 
-	/* Fetch control array and set control variables */
+	/* Fetch control array and set local control variables */
 	int* controlArray = fetchControlArray();
 	int gap = controlArray[0];
 	int numberToFork = controlArray[1];
 	int total = controlArray[2];
-
-	/* Test control array */
-	if (child == 0)
-		printf("%d %d %d %d\n", controlArray[0], controlArray[1], controlArray[2], controlArray[3]);
+	int mode = controlArray[5];
+	int sleepTime = controlArray[6];
 
 	/* Fetch shared memory array */
 	int* array = fetchSharedArray(total);
 
-	/* Put sum into correct position in shared memory array */
-	array[child] = binSum(array[child], array[child + gap]);
+	/* CHECK MODE */
+	if (mode == 0) {
+		/* Put sum into correct position in shared memory array */
+		array[child] = binSum(array[child], array[child + gap]);
+	}
+	else
+	{
+		/* Put sum into correct position in shared memory array */
+		array[child] = binLog(array, child, number, total);
+		
+	}
 
-	/* Play with semaphores */
+	/* Fetch semaphore */
 	int sem = semget(8576, 1, 0666);
 	if (sem == -1) {
 		perror("main: semget");
 		exit(1);
 	}
-	update_file(sem, child, array[child]);
+	/* Update adder_log */
+	update_file(sem, child, array[child], number, sleepTime);
+
+	/* If doing log summation, exit */
+	if (mode != 0) {
+		exit(0);
+	}
 
 	/* If 'master child' wait for siblings to die, otherwise decrement 'remaining' */
 	if (child == 0) {
@@ -84,22 +95,6 @@ int main(int argc, const char* argv[]){
 	else 
 		controlArray[3] -= 1;
 
-	/* Detach array from shared memory */
-	//shmdt(array);
-	//shmdt(controlArray);
-
-	//int* arrayFin;
-	// shmget returns an identifier in shmid
-	//int shmidAr = shmget(9991, total * sizeof(int), 0666);
-	// error check for shmget
-	//if (shmidAr < 0) {
-		//perror("shmget error\n");
-		//exit(1);
-	//}
-	//arrayFin = (int*)shmat(shmidAr, NULL, 0);
-	//arrayFin[child] = 1;
-	//shmdt(arrayFin);
-
 return 0;
 }
 
@@ -107,8 +102,18 @@ int binSum(int first, int second) {
 	return (first + second);
 }
 
-void binLog() {
-
+int binLog(int* array, int child, int number, int total) {
+	/* Quick edition to acount for remainders */
+	if ((total - child) < number) {
+		number = (total - child);
+	}
+	/* Get the sum */
+	int sum = 0;
+	int i;
+	for (i = 0; i < number; i++) {		
+		sum += array[child + i];
+	}
+	return sum;
 }
 
 int* fetchSharedArray(int total) {
@@ -134,12 +139,12 @@ int* fetchControlArray() {
 		Pull integers out of shared memory
 	-------------------------------------------*/
 	int* array;
-	int fields = 5;
+	int fields = 7;
 	/* We gon shmget us some memory! Yeehaw! */
 	int shmidAr1 = shmget(0202, fields * sizeof(int), 066);
 	/* Check for errors */
 	if (shmidAr1 == -1) {
-		perror("error getting shmidAr1\n");
+		perror("error getting shmidAr1. bin\n");
 		exit(1);
 	}
 	/* Attach our array to the shared memory */
@@ -191,11 +196,10 @@ void startTheForking(int gap, int numberToFork, int total, int minus) {
 	for (i = 0; i < numberToFork; i++) {
 		wait();
 	}
-	printf("All my friends are dead too!\n");
 }
 
 /* this function updates the contents of the file with the given path name. */
-void update_file(int sem, int index, int number)
+void update_file(int sem, int index, int number, int size, int sleepTime)
 {
 	/* structure for semaphore operations.   */
 	struct sembuf sem_op;
@@ -204,31 +208,30 @@ void update_file(int sem, int index, int number)
 
 	/* wait on the semaphore, unless it's value is non-negative. */
 	sem_op.sem_num = 0;
-	sem_op.sem_op = -1;   /* <-- Comment 1 */
+	sem_op.sem_op = -1;  
 	sem_op.sem_flg = 0;
 	semop(sem, &sem_op, 1);
 
 	/* wait for 1 second */
-	//sleep(1);
+	sleep(sleepTime);
 
 	time_t curtime;
 	time(&curtime);
 	fprintf(stderr, "Entering critical section at ");
 	fprintf(stderr, "%s\n", ctime(&curtime));
 
-	/* we "locked" the semaphore, and are assured exclusive access to file.  */
-	/* manipulate the file in some way. for example, write a number into it. */
+	/* "locked" the semaphore to assure exclusive access to file.  */
 	file = fopen("adder_log", "a");
 
 	if (file) {
 		fprintf(file, "PID    Index     Size\n");
-		fprintf(file, "%d     %d        %d\n", getpid(), index, 2);
+		fprintf(file, "%d     %d        %d\n", getpid(), index, size);
 		fprintf(file, "Calculated %d as sum\n", number);
 		fclose(file);
 	}
 
 	/* wait for 1 second */
-	//sleep(1);
+	sleep(sleepTime);
 
 	time(&curtime);
 	fprintf(stderr, "Exiting critical section at ");
@@ -236,7 +239,7 @@ void update_file(int sem, int index, int number)
 
 	/* finally, signal the semaphore - increase its value by one. */
 	sem_op.sem_num = 0;
-	sem_op.sem_op = 1;   /* <-- Comment 3 */
+	sem_op.sem_op = 1;  
 	sem_op.sem_flg = 0;
 	semop(sem, &sem_op, 1);
 }

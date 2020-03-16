@@ -17,7 +17,7 @@
 #include <math.h>
 
 #define FILENAME "inputFile.txt"
-#define INTERVAL 100000
+
 
 /* Function prototypes */
 int getTotal();
@@ -26,40 +26,68 @@ int createSharedArray(int);
 void fetchSharedArray(int);
 void INThandler(int);
 void startTheForking(int, clock_t, clock_t);
-int createControlArray(int);
+int createControlArray(int, int, int);
+int editControlArray(int, int);
 void refactor();
 int makeSemaphore();
-int flagArray();
 void doStuff();
+void forkOffSomeMore(double, int);
+void refactorArray(int, int);
 
-/* Global variable */
+/* Global variables */
 int globalTotal;
 int* currentProcesses;
 
 
 int main(int argc, const char* argv[]){
+	/* Option variables */
+	int options;
+	int adjust = 100;
+	int sleepTime = 1;
+
+	/* OPTIONS */
+	while ((options = getopt(argc, argv, "hra:")) != -1) {
+
+		switch (options) {
+		case 'h':
+			printf("HOW TO RUN\n");
+			printf("Run command './master' after compiling.\n");
+			printf("OPTIONS:\n");
+			printf("-h Describe how to run, options, then terminate.\n");
+			printf("-r Remove wait time surrounding critical section access.\n");
+			printf("-a # Adjust the time (in seconds) allowed for computation. Default is 100.\n");
+			exit(0);
+		case 'r':
+			sleepTime = 0;
+			break;
+		case 'a':
+			adjust = atoi(optarg);
+			break;		
+		default:
+			exit(0);
+		}
+	}
+	int interval = (adjust * 1000);
+	
 	/* timeout timer timing times timely */
 	struct itimerval it_val;
 	if (signal(SIGALRM, (void (*)(int)) doStuff) == SIG_ERR) {
 		perror("Unable to catch SIGALRM");
 		exit(1);
 	}
-	it_val.it_value.tv_sec = INTERVAL / 1000;
-	it_val.it_value.tv_usec = (INTERVAL * 1000) % 1000000;
+	it_val.it_value.tv_sec = interval / 1000;
+	it_val.it_value.tv_usec = (interval * 1000) % 1000000;
 	it_val.it_interval = it_val.it_value;
 	if (setitimer(ITIMER_REAL, &it_val, NULL) == -1) {
 		perror("error calling setitimer()");
 		exit(1);
 	}
-	
+
 	/* Clear adder_log */
 	refactor();
 	
 	/* Make semaphore */
 	int sem = makeSemaphore();
-
-	/* Create process handler */
-	int processingPROCESSING = oneRingToRuleThemAll();
 
 	/* -------------------------
 	     Set signal handler 
@@ -70,26 +98,45 @@ int main(int argc, const char* argv[]){
 	int total = getTotal();
 	globalTotal = total;
 
-	/* Create flag array */
-	int flag = flagArray(total);
-
 	/* Get log group number */
-	int numbersEach = ceil(log(total));
-	int groups = ceil(total / numbersEach);
-	//printf("%d %d\n", groups, numbersEach);
+	double numbersEach = ceil(log(total));
+	double groups = ceil(total / numbersEach);
 	
 	/* Create shared memory array and feed integers from file */
 	int sharedMemoryId = createSharedArray(total);
 
 	/* Create control shared memory array and assign values */
-	int controlMemoryId = createControlArray(total);
+	int mode = 0;
+	int controlMemoryId = createControlArray(total, mode, sleepTime);
 
 	/*Start 'real time' clock*/
 	clock_t start, check;
 	start = clock();
 
-	
-	/* Test forking */
+	/* Priliminary forking */
+	startTheForking(total, start, check);
+
+	/* Test fetching integers from shared memory */
+	fetchSharedArray(total);
+
+	/* Create shared memory array and feed integers from file */
+	sharedMemoryId = createSharedArray(total);
+
+	/* Set control shared memory array to assigned values */
+	mode = 1;
+	controlMemoryId = createControlArray(total, mode, sleepTime);
+
+	/* Log forking */
+	forkOffSomeMore(groups, numbersEach);
+
+	/* Zero out irrelevant numbers */
+	refactorArray(numbersEach, total);
+
+	/* Set control shared memory array to assigned values */
+	mode = 0;
+	controlMemoryId = createControlArray(total, mode, sleepTime);
+
+	/* Post log forking */
 	startTheForking(total, start, check);
 
 	/* Test fetching integers from shared memory */
@@ -97,10 +144,8 @@ int main(int argc, const char* argv[]){
 
 	/* Remove shared memory*/
 	shmdt(currentProcesses);
-	shmctl(processingPROCESSING, IPC_RMID, NULL);
 	shmctl(sharedMemoryId, IPC_RMID, NULL);
 	shmctl(controlMemoryId, IPC_RMID, NULL);
-	shmctl(flag, IPC_RMID, NULL);
 	if (semctl(sem, 0, IPC_RMID, 0) != 0) {
 		fprintf(stderr, "Couldn't remove the semahpore!\n");
 		exit(1);
@@ -175,11 +220,11 @@ int createSharedArray(int total) {
 	return shmidAr1;
 }
 
-int createControlArray(int total) {
+int createControlArray(int total, int mode, int sleepTime) {
 	int gap = 1;
 	int numberToFork = (total / 2);
 	int remaining = numberToFork;
-	int fields = 5;
+	int fields = 7;
 
 	/*---------------------------------------
 	Set up shared memory array of size 'total'
@@ -201,6 +246,8 @@ int createControlArray(int total) {
 	array2[2] = total;
 	array2[3] = remaining;
 	array2[4] = 1; //this will keep track of 'master' process and 'master children'
+	array2[5] = mode; //mode: 0 is for sum, 1 is for log
+	array2[6] = sleepTime;
 
 	/* Detach our array from shared memory */
 	shmdt(array2);
@@ -208,6 +255,42 @@ int createControlArray(int total) {
 
 	return shmidAr2;
 }
+
+int editControlArray(int total, int mode) {
+	int gap = 1;
+	int numberToFork = (total / 2);
+	int remaining = numberToFork;
+	int fields = 6;
+
+	/*---------------------------------------
+	Set up shared memory array of size 'total'
+	----------------------------------------*/
+	int* array2;
+	/* We gon shmget us some memory! Yeehaw! */
+	int shmidAr2 = shmget(0202, fields * sizeof(int), 0666);
+	/* Check for errors */
+	if (shmidAr2 < 0) {
+		perror("shmget error\n");
+		exit(1);
+	}
+	/* Attach our array to the shared memory */
+	array2 = (int*)shmat(shmidAr2, NULL, 0);
+
+	/* Set control array variables */
+	array2[0] = gap;
+	array2[1] = numberToFork;
+	array2[2] = total;
+	array2[3] = remaining;
+	array2[4] = 1; //this will keep track of 'master' process and 'master children'
+	array2[5] = mode; //mode: 0 is for sum, 1 is for log
+
+	/* Detach our array from shared memory */
+	shmdt(array2);
+	/*-------------------------------------*/
+
+	return shmidAr2;
+}
+
 void fetchSharedArray(int total) {
 	/* ------------------------------------------
 		Pull integers out of shared memory 
@@ -241,7 +324,6 @@ void  INThandler(int sig)
 	int shmidAr = shmget(9991, globalTotal * sizeof(int), 0666);
 
 	signal(sig, SIG_IGN);
-	shmctl(processingPROCESSING, IPC_RMID, NULL);
 	shmctl(shmidAr, IPC_RMID, NULL);
 	shmctl(sharedMemoryId, IPC_RMID, NULL);
 	shmctl(controlMemoryId, IPC_RMID, NULL);
@@ -261,8 +343,6 @@ void startTheForking(int total, clock_t start, clock_t check) {
 	/* Test forking apporpriate amount of children */
 	int pid;
 	int childIndex = -2;
-	int numberOfStartingProcesses = (total / 2);
-	int i;
 	
 	/*--------------------------------------------------
 						 THE LOOP
@@ -300,12 +380,10 @@ void startTheForking(int total, clock_t start, clock_t check) {
 	}
 	/*--------------------------------------------------*/
 
-	printf("NOP %d\n", numberOfProcesses);
 	int k;
 	for (k = 0; k < letsWait; k++) {
 		wait();
 	}
-	printf("All my friends are dead.\n");
 }
 
 void refactor() {
@@ -337,51 +415,7 @@ int makeSemaphore() {
 	return sem;
 }
 
-int oneRingToRuleThemAll() {
-	/*---------------------------------------
-	Test integer in shared memory
-----------------------------------------*/
-// shmget returns an identifier in shmid
-	int shmid = shmget(7890, 1024, 0666 | IPC_CREAT);
 
-	// error check for shmget
-	if (shmid < 0) {
-		perror("shmget error\n");
-		exit(1);
-	}
-
-	// shmat to attach to shared memory
-	currentProcesses = (int*)shmat(shmid, NULL, 0);
-	
-	currentProcesses = 0;
-	
-	return shmid;
-	/*---------------------------------------*/
-}
-
-int flagArray(int total) {
-	/*--------------------------------------
-		Shared memory flag array
-		-------------------------------------- - */
-		// shmat to attach to shared memory
-		int* array;
-	// shmget returns an identifier in shmid
-	int shmidAr = shmget(9991, total * sizeof(int), 0666 | IPC_CREAT);
-	// error check for shmget
-	if (shmidAr < 0) {
-		perror("shmget error\n");
-		exit(1);
-	}
-	array = (int*)shmat(shmidAr, NULL, 0);
-	int i;
-	for (i = 0; i < (total); i++) {
-		array[i] = 0;
-	}
-	// detach from shared memory
-	shmdt(array);
-	/*-------------------------------------*/
-	return shmidAr;
-}
 void doStuff() {
 	int fields = 4;
 	int sharedMemoryId = shmget(0101, globalTotal * sizeof(int), 0666);
@@ -391,7 +425,7 @@ void doStuff() {
 	int shmidAr = shmget(9991, globalTotal * sizeof(int), 0666);
 
 	
-	shmctl(processingPROCESSING, IPC_RMID, NULL);
+
 	shmctl(shmidAr, IPC_RMID, NULL);
 	shmctl(sharedMemoryId, IPC_RMID, NULL);
 	shmctl(controlMemoryId, IPC_RMID, NULL);
@@ -401,4 +435,109 @@ void doStuff() {
 	}
 	printf("\nTimeout detected. Master process shutting down. Boop. Beep.\n");
 	exit(0);
+}
+
+void forkOffSomeMore(double groups, int number) {
+	int numberOfProcesses = 0;
+	int childrenWorking = 0;
+	
+	/* Test forking apporpriate amount of children */
+	int pid;
+	int childIndex = -number;
+
+	/*--------------------------------------------------
+						 THE LOOP
+	--------------------------------------------------*/
+	while (numberOfProcesses < groups) {
+
+		if (childrenWorking < 19) {
+			childIndex += number;
+			numberOfProcesses++;
+			childrenWorking++;
+			pid = fork();
+			if (pid < 0) {
+				perror("There was a forking error.\n");
+				exit(1);
+			}
+			else if (pid == 0) {
+				char* command = "./bin_adder";
+				char passChildIndex[32];
+				char size[32];
+				snprintf(passChildIndex, sizeof(passChildIndex), "%d", childIndex);
+				snprintf(size, sizeof(size), "%d", number);
+				int value = execlp(command, passChildIndex, size, (char*)NULL);
+				if (value < 0) {
+					perror("Error with exec().\n");
+					exit(1);
+				}
+			}
+
+		}
+		else {
+			wait();
+			childrenWorking--;
+		}
+
+	}
+	/*--------------------------------------------------*/
+
+	int k;
+	for (k = 0; k < groups; k++) {
+		wait();
+	}
+}
+
+int createSharedArrayLog(int total) {
+	/*---------------------------------------
+	Set up shared memory array of size 'total'
+	----------------------------------------*/
+	int* array1;
+	/* We gon shmget us some memory! Yeehaw! */
+	int shmidAr1 = shmget(2020, total * sizeof(int), 0666 | IPC_CREAT);
+	/* Check for errors */
+	if (shmidAr1 < 0) {
+		perror("shmget error\n");
+		exit(1);
+	}
+	/* Attach our array to the shared memory */
+	array1 = (int*)shmat(shmidAr1, NULL, 0);
+	/* Open our file */
+	FILE* file;
+	char* mode = "r";
+	file = fopen("inputFile.txt", mode);
+	/* Put integers from file into local array */
+	int i = 0;
+	while (fscanf(file, "%d", &array1[i]) != EOF) i++;
+	/* Close our file*/
+	fclose(file);
+	/* Detach our array from shared memory */
+	shmdt(array1);
+	/*-------------------------------------*/
+
+	return shmidAr1;
+}
+
+void refactorArray(int numbers, int total) {
+	/* ------------------------------------------
+		Pull integers out of shared memory
+	-------------------------------------------*/
+	int* array;
+	/* We gon shmget us some memory! Yeehaw! */
+	int shmidAr = shmget(0101, total * sizeof(int), 066);
+	/* Check for errors */
+	if (shmidAr == -1) {
+		perror("error getting shmidAr\n");
+		exit(1);
+	}
+	/* Attach our array to the shared memory */
+	array = (int*)shmat(shmidAr, NULL, 0);
+	/* Print off integers in shared memory */
+	int i;
+	for (i = 1; i < total; i++) {
+		if (i % numbers == 0);
+		else
+			array[i] = 0;
+	}
+	/* Detach array from shared memory */
+	shmdt(array);
 }
