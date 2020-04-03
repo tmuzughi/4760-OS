@@ -1,11 +1,11 @@
 CFLAGS=-Wall -g
 
 SOURCE_MAIN=oss.c
-SOURCE_SLAVE=user.c
+SOURCE_SLAVE=child.c
 OBJECT_MAIN=oss.o
-OBJECT_SLAVE=prime.o
+OBJECT_SLAVE=child.o
 EXE_MAIN=oss
-EXE_SLAVE=prime
+EXE_SLAVE=child
 all: $(EXE_MAIN) $(EXE_SLAVE)
 $(EXE_MAIN): $(OBJECT_MAIN)
 	gcc $(OBJECT_MAIN) -o $(EXE_MAIN)
