@@ -20,7 +20,7 @@
 #include "oss.h"
 
 #define maxBhatia 18
-	
+
 /*----------------------------------------
 			FUNCTION PROTOTYPES
 ----------------------------------------*/
@@ -41,6 +41,7 @@ void handleRequests();
 int makeSemaphore();
 void semBegin();
 void semEnd();
+void deadlock();
 
 /*----------------------------------------
 				GLOBALS
@@ -52,8 +53,8 @@ int maxTotalNOP = 30; //Total processes we will create
 
 FILE* file;
 
-int main(int argc, char* argv[]){
-	
+int main(int argc, char* argv[]) {
+
 	file = fopen("output_log", "w");
 	fclose(file);
 	signal(SIGCHLD, func);
@@ -71,13 +72,14 @@ int main(int argc, char* argv[]){
 	int currentNOPID = createCurrentNOP();
 
 	unsigned long int timeToCreate = 0;
-	
+
 	int times = 1;
 	srand(getpid());
 	while (totalNOP < maxTotalNOP) {
-		
+		deadlock();
 		/* Increment the nanoseconds */
 		semBegin();
+		
 		editSharedNanoSeconds(1000000);
 		semEnd();
 		/* Check Requests */
@@ -87,7 +89,7 @@ int main(int argc, char* argv[]){
 
 		currentNOP = fetchCurrentNOP();
 		if (currentNOP < 18) {
-			
+
 			/* If nanos are greater than threshold, activate forking! */
 			if (currentNanos >= (timeToCreate)) {
 				timeToCreate = fetchSharedNanoSeconds();
@@ -96,6 +98,7 @@ int main(int argc, char* argv[]){
 				editCurrentNOP(1);
 				totalNOP++;
 				times++;
+				
 			}
 		}
 		else
@@ -107,15 +110,17 @@ int main(int argc, char* argv[]){
 				//wait(NULL);
 			//}
 			while (wait(NULL) > 0) {
+				
 				handleRequests();
-				}
+				
+			}
 			//while (currentNOP >= 18) {
 				//b++;
 				//handleRequests();
 				//if (b > 1000)
 					//break;					
 			//}
-		}		
+		}
 	}
 	//handleRequests();
 	/* "Wait" for all remaining user processes to terminate */
@@ -124,7 +129,7 @@ int main(int argc, char* argv[]){
 		handleRequests();
 		wait(NULL);
 	}
-		
+
 	/* Remove shared memory */
 	shmctl(sharedNanoID, IPC_RMID, NULL);
 	shmctl(resourceDescriptorArrayID, IPC_RMID, NULL);
@@ -134,7 +139,7 @@ int main(int argc, char* argv[]){
 		exit(1);
 	}
 
-return 0;
+	return 0;
 }
 
 int createSharedSeconds() {
@@ -294,24 +299,40 @@ void forkOneProcess() {
 
 	}
 	if (pid < 0) {
-		perror("There was a forking error.\n");
-		printf("Current processes %d\n", currentNOP);
-		printf("Total processes %d\n", totalNOP);
-		int shmid = shmget(77789, 1024, 066);
-		int shmidAr1 = shmget(90210, 20 * sizeof(resourceDescriptor), 066);
-		int shmidNS = shmget(789, sizeof(unsigned long int), 066);
-		//int shmidS = shmget(678, sizeof(unsigned long int), 066);
+		printf("reforking\n");
+		wait(NULL);
+		int pid = fork();
+		if (pid < 0) {
+			perror("There was a forking error.\n");
+			printf("Current processes %d\n", currentNOP);
+			printf("Total processes %d\n", totalNOP);
+			int shmid = shmget(77789, 1024, 066);
+			int shmidAr1 = shmget(90210, 20 * sizeof(resourceDescriptor), 066);
+			int shmidNS = shmget(789, sizeof(unsigned long int), 066);
+			//int shmidS = shmget(678, sizeof(unsigned long int), 066);
 
-		//signal(sig, SIG_IGN);
-		shmctl(shmid, IPC_RMID, NULL);
-		shmctl(shmidAr1, IPC_RMID, NULL);
-		shmctl(shmidNS, IPC_RMID, NULL);
-		//shmctl(shmidS, IPC_RMID, NULL);
-		exit(1);
+			//signal(sig, SIG_IGN);
+			shmctl(shmid, IPC_RMID, NULL);
+			shmctl(shmidAr1, IPC_RMID, NULL);
+			shmctl(shmidNS, IPC_RMID, NULL);
+			//shmctl(shmidS, IPC_RMID, NULL);
+			exit(1);
+		}
+		else if (pid == 0) {
+			char* command = "./user";
+			char isRealPass[32];
+			snprintf(isRealPass, sizeof(isRealPass), "%d", totalNOP);
+
+			int value = execlp(command, isRealPass, (char*)NULL);
+			if (value < 0) {
+				perror("Error with exec().\n");
+				exit(1);
+			}
+		}
 	}
 	else if (pid == 0) {
 		//printf("goodbye, cruel world\n");
-		
+
 		char* command = "./user";
 		char isRealPass[32];
 		snprintf(isRealPass, sizeof(isRealPass), "%d", totalNOP);
@@ -328,7 +349,7 @@ int createResourceDescriptors() {
 	resourceDescriptor* resourceDescriptorArray;
 	/* We gon shmget us some memory! Yeehaw! */
 	int shmidAr1 = shmget(90210, 20 * sizeof(resourceDescriptor), 0666 | IPC_CREAT);
-	
+
 	/* Check for errors */
 	if (shmidAr1 < 0) {
 		perror("shmget error on shmidAr1\n");
@@ -352,17 +373,19 @@ int createResourceDescriptors() {
 	if (percent == 3) {
 		resourceDescriptorArray[4].total = (rand() % (10 - 1 + 1)) + 1;
 		resourceDescriptorArray[3].total = (rand() % (10 - 1 + 1)) + 1;
-	}		
+	}
 	/* Instantiate remaining RDs with 1 (non-sharable) */
 	for (i = 5; i < 20; i++) {
 		resourceDescriptorArray[i].total = (rand() % (10 - 1 + 1)) + 1;
 	}
-	file = fopen("output_log", "a");	
+	semBegin();
+	file = fopen("output_log", "a");
 	/* PRINT FOR TESTING */
 	fprintf(file, "Percent is %d%\n", ((percent * 100) / 20));
 	for (i = 0; i < 20; i++) {
 		fprintf(file, "R%d has %d instance(s)\n", i, resourceDescriptorArray[i].total);
 	}
+	semEnd();
 	/* Initialize requested array for each descriptor */
 	int a;
 	int e;
@@ -379,6 +402,7 @@ int createResourceDescriptors() {
 }
 
 void handleRequests() {
+	semBegin();
 	resourceDescriptor* resourceDescriptorArray;
 	/* We gon shmget us some memory! Yeehaw! */
 	int shmidAr1 = shmget(90210, 20 * sizeof(resourceDescriptor), 066);
@@ -401,7 +425,7 @@ void handleRequests() {
 				/* Request found */
 				printf("P%d has requested R%d\n", resourceDescriptorArray[a].requested[e], a);
 				/* Allocate, if resource is avaialable */
-				
+
 				if (resourceDescriptorArray[a].available > 0) {
 					resourceDescriptorArray[a].allocated++;
 					resourceDescriptorArray[a].available--;
@@ -411,13 +435,13 @@ void handleRequests() {
 				else {
 					printf("Request denied\n");
 				}
-				
-				
-			}		
+
+
+			}
 		}
 	}
 	shmdt(resourceDescriptorArray);
-
+	semEnd();
 }
 
 void func(int signum)
@@ -426,10 +450,10 @@ void func(int signum)
 }
 
 int createCurrentNOP() {
-/*---------------------------------------
-	NOP integer in shared memory
-----------------------------------------*/
-// shmget returns an identifier in shmid
+	/*---------------------------------------
+		NOP integer in shared memory
+	----------------------------------------*/
+	// shmget returns an identifier in shmid
 	int shmid = shmget(77789, 1024, 0666 | IPC_CREAT);
 
 	// error check for shmget
@@ -509,12 +533,12 @@ void  INThandler(int sig)
 	shmctl(shmidAr1, IPC_RMID, NULL);
 	shmctl(shmidNS, IPC_RMID, NULL);
 	//shmctl(shmidS, IPC_RMID, NULL);
-	
+
 	if (semctl(sem, 0, IPC_RMID, 0) != 0) {
 		fprintf(stderr, "Couldn't remove the semahpore!\n");
 		exit(1);
 	}
-	
+
 	printf("\nCtrl + C detected. Master process shutting down. Beep. Boop.\n");
 	exit(0);
 
@@ -573,4 +597,81 @@ void semEnd() {
 	sem_op.sem_op = 1;
 	sem_op.sem_flg = 0;
 	semop(sem, &sem_op, 1);
+}
+
+void deadlock() {
+	semBegin();
+	resourceDescriptor* resourceDescriptorArray;
+	/* We gon shmget us some memory! Yeehaw! */
+	int shmidAr1 = shmget(90210, 20 * sizeof(resourceDescriptor), 066);
+
+	/* Check for errors */
+	if (shmidAr1 < 0) {
+		perror("shmget error on shmidAr1\n");
+		exit(1);
+	}
+	/* Attach shared memory */
+	resourceDescriptorArray = (resourceDescriptor*)shmat(shmidAr1, NULL, 0);
+
+	int available[20];
+	int i;
+	for (i = 0; i < 20; i++) {
+		available[i] = resourceDescriptorArray[i].available;
+	}
+	/* fprint allocation so i can see it */
+	
+	file = fopen("output_log", "a");
+	fprintf(file, "R00  R01  R02  R03  R04  R05  R06  R07  R08  R09  R10  R11  R12  R13  R14  R15  R16  R17  R18  R19\n");
+	for (i = 0; i < 20; i++) {
+		if (resourceDescriptorArray[i].available < 10)
+			fprintf(file, "%d    ", resourceDescriptorArray[i].available);
+		if (resourceDescriptorArray[i].available == 10)
+			fprintf(file, "%d   ", resourceDescriptorArray[i].available);
+		if (resourceDescriptorArray[i].available > 10)
+			fprintf(file, "%d  ", resourceDescriptorArray[i].available);
+	}
+	fprintf(file, "\n");
+	
+	/* create request matrix */
+	
+	int request[18][20];
+	int j;
+	int num = fetchCurrentNOP();
+	bool printMe = false;
+	for (i = 0; i < 20; i++) {
+		for (j = 0; j < num; j++) {
+			request[i][j] = resourceDescriptorArray[i].requested[j];
+			if (request[i][j] > -1) {
+				printMe = true;
+			}
+		}
+	}
+	if (printMe == true) {
+		fprintf(file, "R00  R01  R02  R03  R04  R05  R06  R07  R08  R09  R10  R11  R12  R13  R14  R15  R16  R17  R18  R19\n");
+		for (i = 0; i < 18; i++) {
+			
+			for (j = 0; j < 20; j++) {
+				if (resourceDescriptorArray[i].requested[j] == -1)
+					fprintf(file, "%d   ", resourceDescriptorArray[i].requested[j]);
+				if (resourceDescriptorArray[i].requested[j] < 10  && resourceDescriptorArray[i].requested[j] > -1)
+					fprintf(file, "%d    ", resourceDescriptorArray[i].requested[j]);
+				if (resourceDescriptorArray[i].requested[j] > 9 && resourceDescriptorArray[i].requested[j] < 100)
+					fprintf(file, "%d   ", resourceDescriptorArray[i].requested[j]);
+				if (resourceDescriptorArray[i].requested[j] > 99)
+					fprintf(file, "%d  ", resourceDescriptorArray[i].requested[j]);
+				
+			}
+			fprintf(file, "\n");
+		}
+	}
+	
+	fclose(file);
+	
+	/* defines number of resources of each type currently allocated to a process */
+	int allocation[18][20]; //[n][m] m = R
+	/* Indicates current request of each process (i)(j) */
+	
+	int work[20];
+	int finish[18];
+	semEnd();
 }
